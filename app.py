@@ -3,6 +3,7 @@
 import logging
 import os
 import subprocess
+import shlex
 
 from flask import Flask, request, jsonify, render_template_string
 from werkzeug.utils import secure_filename
@@ -82,6 +83,11 @@ def run_shell_script(script_path, *args):
             check=False,
             timeout=300  # 5 minute timeout
         )
+
+        # Log the raw output for debugging
+        logger.info(f"Script returncode: {result.returncode}")
+        logger.info(f"Script stdout: {result.stdout[:500]}...")  # First 500 chars
+        logger.info(f"Script stderr: {result.stderr[:500]}...")   # First 500 chars
 
         return {
             'success': result.returncode == 0,
@@ -526,19 +532,35 @@ def remove_addons():
             if not data['packs']:
                 return jsonify({'success': False, 'message': 'No packs specified for removal'}), 400
 
-            # Remove specific packs by name
-            pack_names = ' '.join(f'"{pack}"' for pack in data['packs'])
-            result = run_shell_script('./remove-mcaddon.sh', 'selective', pack_names)
+            # Remove specific packs by name - fix the argument passing
+            cmd_args = ['./remove-mcaddon.sh', 'selective'] + data['packs']
+            result = run_shell_script(*cmd_args)
         else:
             return jsonify(
                 {'success': False, 'message': 'Invalid request format. Use "remove_all": true or "packs": [...]'}), 400
 
-        if result['success']:
-            return jsonify({
-                'success': True,
-                'message': 'Successfully removed addons',
-                'output': result['stdout']
-            })
+        # The removal script uses colored output and returns 0 even with successful removals
+        # Check for success indicators in the output
+        if result['returncode'] == 0:
+            # Look for success indicators in the output
+            stdout = result['stdout']
+            if ('✓ Removed behavior pack' in stdout or
+                    '✓ Removed resource pack' in stdout or
+                    'Successfully removed' in stdout or
+                    'No custom addon packs found to remove' in stdout):
+
+                return jsonify({
+                    'success': True,
+                    'message': 'Successfully removed addons',
+                    'output': result['stdout']
+                })
+            else:
+                # Even if return code is 0, if we don't see success indicators, treat as error
+                return jsonify({
+                    'success': False,
+                    'message': 'Removal script completed but no addons were removed',
+                    'error': result['stdout'] + '\n' + result['stderr']
+                }), 500
         else:
             return jsonify({
                 'success': False,
