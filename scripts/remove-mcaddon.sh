@@ -95,8 +95,10 @@ restart_server() {
     echo -e "${YELLOW}🔄 Restarting Minecraft server...${NC}"
     if docker restart minecraft > /dev/null 2>&1; then
         echo "  ✓ Server restarted successfully"
+        return 0
     else
         echo "  ⚠️ Warning: Could not restart server (container may not be running)"
+        return 1
     fi
 }
 
@@ -126,6 +128,7 @@ case "${1:-interactive}" in
         restart_server
 
         echo -e "${GREEN}✅ Successfully removed $removed_count addon pack(s)!${NC}"
+        exit 0
         ;;
 
     "selective")
@@ -156,9 +159,19 @@ case "${1:-interactive}" in
         if [ $removed_count -gt 0 ]; then
             clean_world_references
             restart_server
+            restart_exit_code=$?
+        else
+            restart_exit_code=0
         fi
 
         echo -e "${GREEN}✅ Successfully removed $removed_count addon pack(s)!${NC}"
+
+        # Exit with success if we removed packs, even if restart failed
+        if [ $removed_count -gt 0 ]; then
+            exit 0
+        else
+            exit 1
+        fi
         ;;
 
     "interactive"|*)
@@ -248,7 +261,7 @@ case "${1:-interactive}" in
         remove_packs "${PACKS_TO_REMOVE[@]}"
         removed_count=$?
 
-        # Clean up world pack references
+        # Clean up world references
         clean_world_references
 
         # Restart server
@@ -256,5 +269,6 @@ case "${1:-interactive}" in
 
         echo -e "${GREEN}✅ Successfully removed $removed_count addon pack(s)!${NC}"
         echo -e "${BLUE}💡 You can now install new addons or re-run this script to remove more.${NC}"
+        exit 0
         ;;
 esac

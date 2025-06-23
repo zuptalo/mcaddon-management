@@ -539,32 +539,47 @@ def remove_addons():
             return jsonify(
                 {'success': False, 'message': 'Invalid request format. Use "remove_all": true or "packs": [...]'}), 400
 
-        # The removal script uses colored output and returns 0 even with successful removals
-        # Check for success indicators in the output
-        if result['returncode'] == 0:
-            # Look for success indicators in the output
-            stdout = result['stdout']
-            if ('✓ Removed behavior pack' in stdout or
-                    '✓ Removed resource pack' in stdout or
-                    'Successfully removed' in stdout or
-                    'No custom addon packs found to remove' in stdout):
+        # Check for success indicators in the output regardless of return code
+        # The script may return non-zero due to Docker restart issues but still remove packs successfully
+        stdout = result['stdout']
+        stderr = result['stderr']
 
-                return jsonify({
-                    'success': True,
-                    'message': 'Successfully removed addons',
-                    'output': result['stdout']
-                })
-            else:
-                # Even if return code is 0, if we don't see success indicators, treat as error
-                return jsonify({
-                    'success': False,
-                    'message': 'Removal script completed but no addons were removed',
-                    'error': result['stdout'] + '\n' + result['stderr']
-                }), 500
+        # Look for success indicators in the output
+        success_indicators = [
+            '✅ Successfully removed',
+            '✓ Removed behavior pack',
+            '✓ Removed resource pack',
+            'No custom addon packs found to remove'
+        ]
+
+        has_success_indicator = any(indicator in stdout for indicator in success_indicators)
+
+        # Check for explicit failure indicators
+        failure_indicators = [
+            '❌ No pack names provided',
+            '❌ Invalid selection',
+            '❌ No valid packs selected'
+        ]
+
+        has_failure_indicator = any(indicator in stdout for indicator in failure_indicators)
+
+        if has_success_indicator and not has_failure_indicator:
+            return jsonify({
+                'success': True,
+                'message': 'Successfully removed addons',
+                'output': result['stdout']
+            })
         else:
+            # If we have explicit failure indicators or no success indicators
+            error_message = 'Failed to remove addons'
+            if has_failure_indicator:
+                error_message = 'Removal script error: Invalid parameters or selection'
+            elif result['returncode'] != 0 and not has_success_indicator:
+                error_message = f'Removal script failed with exit code {result["returncode"]}'
+
             return jsonify({
                 'success': False,
-                'message': 'Failed to remove addons',
+                'message': error_message,
                 'error': result['stderr'] or result['stdout']
             }), 500
 
