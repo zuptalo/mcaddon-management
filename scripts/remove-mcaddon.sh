@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Don't exit on individual command failures - we'll handle errors manually
-set +e
-
 DATA_DIR="/root/tools/minecraft"
 WORLD_DIR="$DATA_DIR/worlds/Bedrock level"
 BEHAVIOR_DIR="$DATA_DIR/behavior_packs"
@@ -80,62 +77,6 @@ get_pack_entities() {
     printf '%s\n' "${entities[@]}" | sort -u
 }
 
-# Function to send commands to Minecraft server
-send_minecraft_command() {
-    local command="$1"
-    echo "    Executing: $command"
-
-    # Send command via Docker exec to the minecraft container
-    # Don't fail the script if this command fails
-    if docker exec minecraft rcon-cli "$command" >/dev/null 2>&1; then
-        echo "    ✓ Command executed successfully"
-        return 0
-    else
-        echo "    ⚠️ Command execution failed (server may not have RCON enabled or be unavailable)"
-        return 1
-    fi
-}
-
-# Function to clean up entities from removed packs
-cleanup_entities() {
-    local packs_to_remove=("$@")
-    local all_entities=()
-
-    echo -e "${YELLOW}🧹 Identifying entities to clean up...${NC}"
-
-    # Collect all entities from packs being removed
-    for pack in "${packs_to_remove[@]}"; do
-        echo "  Scanning pack: $pack"
-        local pack_entities=($(get_pack_entities "$pack"))
-        if [ ${#pack_entities[@]} -gt 0 ]; then
-            echo "    Found entities: ${pack_entities[*]}"
-            all_entities+=("${pack_entities[@]}")
-        else
-            echo "    No entities found"
-        fi
-    done
-
-    if [ ${#all_entities[@]} -eq 0 ]; then
-        echo "  No entities to clean up"
-        return 0
-    fi
-
-    echo -e "${YELLOW}🗑️ Removing existing entities from world...${NC}"
-
-    # Remove all instances of each entity type
-    for entity in "${all_entities[@]}"; do
-        echo "  Attempting to remove all instances of: $entity"
-        # Don't fail if the kill command doesn't work
-        send_minecraft_command "kill @e[type=$entity]" || true
-    done
-
-    # Clear all players' inventories of spawn eggs (optional - commented out as it's aggressive)
-    # echo "  Clearing spawn eggs from player inventories..."
-    # send_minecraft_command "clear @a spawn_egg" || true
-
-    echo "  ✓ Entity cleanup completed"
-}
-
 # Function to remove specific packs
 remove_packs() {
     local packs_to_remove=("$@")
@@ -182,7 +123,7 @@ clean_world_references() {
     fi
 }
 
-# Function to restart minecraft server with better error handling
+# Function to restart minecraft server
 restart_server() {
     echo -e "${YELLOW}🔄 Restarting Minecraft server...${NC}"
 
@@ -194,40 +135,11 @@ restart_server() {
 
     # Restart the container
     if docker restart minecraft >/dev/null 2>&1; then
-        echo "  ✓ Restart command sent successfully"
-
-        # Wait a moment for the restart to begin
-        sleep 2
-
-        # Wait for the server to come back online (up to 30 seconds)
-        local count=0
-        while [ $count -lt 30 ]; do
-            if docker logs minecraft --tail 20 2>/dev/null | grep -q "Server started"; then
-                echo "  ✓ Server restarted and online"
-                return 0
-            fi
-            sleep 1
-            ((count++))
-        done
-
-        echo "  ⚠️ Server restart initiated but status unclear"
+        echo "  ✓ Server restart command sent successfully"
         return 0
     else
         echo "  ❌ Failed to restart server"
         return 1
-    fi
-}
-
-# Function to send notification to all players
-notify_players() {
-    local message="$1"
-    echo -e "${YELLOW}📢 Notifying players...${NC}"
-
-    # Try to send the message, but don't fail if it doesn't work
-    if send_minecraft_command "say $message"; then
-        echo "    ✓ Players notified"
-    else
-        echo "    ⚠️ Could not notify players (RCON may not be available)"
     fi
 }
 
@@ -246,12 +158,6 @@ case "${1:-interactive}" in
 
         echo -e "${YELLOW}📦 Found ${#ALL_PACKS[@]} custom addon pack(s) to remove${NC}"
 
-        # Notify players before starting
-        notify_players "Server maintenance: Removing all addon packs. Server will restart shortly."
-
-        # Clean up entities before removing packs (while server is still running)
-        cleanup_entities "${ALL_PACKS[@]}"
-
         # Remove all packs
         remove_packs "${ALL_PACKS[@]}"
         removed_count=$?
@@ -263,6 +169,7 @@ case "${1:-interactive}" in
         restart_server
 
         echo -e "${GREEN}✅ Successfully removed $removed_count addon pack(s)!${NC}"
+        echo -e "${YELLOW}ℹ️ Note: Existing entities will be removed after server restart.${NC}"
         exit 0
         ;;
 
@@ -286,12 +193,6 @@ case "${1:-interactive}" in
         echo -e "${BLUE}🔍 Removing selected addon packs...${NC}"
         echo -e "${YELLOW}📦 Packs to remove: ${PACKS_TO_REMOVE[*]}${NC}"
 
-        # Notify players before starting
-        notify_players "Server maintenance: Removing addon packs (${PACKS_TO_REMOVE[*]}). Server will restart shortly."
-
-        # Clean up entities before removing packs (while server is still running)
-        cleanup_entities "${PACKS_TO_REMOVE[@]}"
-
         # Remove selected packs
         remove_packs "${PACKS_TO_REMOVE[@]}"
         removed_count=$?
@@ -303,6 +204,7 @@ case "${1:-interactive}" in
         fi
 
         echo -e "${GREEN}✅ Successfully removed $removed_count addon pack(s)!${NC}"
+        echo -e "${YELLOW}ℹ️ Note: Existing entities will be removed after server restart.${NC}"
 
         # Exit with success if we removed packs
         if [ $removed_count -gt 0 ]; then
@@ -359,7 +261,7 @@ case "${1:-interactive}" in
         echo "  - Enter 'all' to remove all custom packs"
         echo "  - Enter 'q' to quit without removing anything"
         echo
-        echo -e "${RED}⚠️ Warning: This will remove all spawned entities and restart the server!${NC}"
+        echo -e "${RED}⚠️ Warning: This will restart the server!${NC}"
         echo
 
         read -p "Your choice: " -r user_input
@@ -391,7 +293,7 @@ case "${1:-interactive}" in
         fi
 
         echo
-        echo -e "${RED}⚠️  About to remove the following packs and all their entities:${NC}"
+        echo -e "${RED}⚠️  About to remove the following packs:${NC}"
         for pack in "${PACKS_TO_REMOVE[@]}"; do
             echo "  - $pack"
             local pack_entities=($(get_pack_entities "$pack"))
@@ -407,12 +309,6 @@ case "${1:-interactive}" in
             exit 0
         fi
 
-        # Notify players
-        notify_players "Server maintenance: Removing addon packs. Server will restart shortly."
-
-        # Clean up entities first
-        cleanup_entities "${PACKS_TO_REMOVE[@]}"
-
         # Remove the selected packs
         remove_packs "${PACKS_TO_REMOVE[@]}"
         removed_count=$?
@@ -424,6 +320,7 @@ case "${1:-interactive}" in
         restart_server
 
         echo -e "${GREEN}✅ Successfully removed $removed_count addon pack(s)!${NC}"
+        echo -e "${YELLOW}ℹ️ Note: Existing entities will be removed after server restart.${NC}"
         echo -e "${BLUE}💡 You can now install new addons or re-run this script to remove more.${NC}"
         exit 0
         ;;
