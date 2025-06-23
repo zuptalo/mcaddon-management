@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 
+import logging
 import os
 import subprocess
-import tempfile
-import logging
-from pathlib import Path
+
 from flask import Flask, request, jsonify, render_template_string
 from werkzeug.utils import secure_filename
 
@@ -22,6 +21,7 @@ MINECRAFT_DATA_DIR = '/root/tools/minecraft'
 
 # Ensure upload directory exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
 
 def extract_entity_identifiers(resource_dir):
     """Extract all entity identifiers from resource pack"""
@@ -64,8 +64,10 @@ def extract_entity_identifiers(resource_dir):
 
     return identifiers
 
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 
 def run_shell_script(script_path, *args):
     """Run a shell script and return the result"""
@@ -102,12 +104,14 @@ def run_shell_script(script_path, *args):
             'stderr': str(e)
         }
 
+
 # HTML template for the upload form
-UPLOAD_TEMPLATE = '''
+UPLOAD_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
     <title>Minecraft Addon Manager</title>
+    <meta charset="UTF-8">
     <style>
         body { font-family: Arial, sans-serif; margin: 40px; background-color: #f5f5f5; }
         .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
@@ -173,7 +177,6 @@ UPLOAD_TEMPLATE = '''
             const formData = new FormData();
             formData.append('file', fileInput.files[0]);
 
-            // Show loading state
             loadingDiv.style.display = 'block';
             submitButton.disabled = true;
             resultDiv.innerHTML = '';
@@ -190,34 +193,22 @@ UPLOAD_TEMPLATE = '''
                     let entityInfoHtml = '';
                     if (result.entity_info) {
                         if (result.entity_count > 1) {
-                            entityInfoHtml = `<br><strong>Entities (${result.entity_count}):</strong><br><pre>${result.entity_info}</pre>`;
+                            entityInfoHtml = '<br><strong>Entities (' + result.entity_count + '):</strong><br><pre>' + result.entity_info + '</pre>';
                         } else {
-                            entityInfoHtml = `<br><strong>Entity:</strong> ${result.entity_info}`;
+                            entityInfoHtml = '<br><strong>Entity:</strong> ' + result.entity_info;
                         }
                     }
 
-                    resultDiv.innerHTML = `
-                        <div class="result success">
-                            <strong>✅ Success!</strong><br>
-                            ${result.message}${entityInfoHtml}
-                            <br><br><strong>Installation Log:</strong>
-                            <pre>${result.output}</pre>
-                        </div>
-                    `;
+                    resultDiv.innerHTML = '<div class="result success"><strong>✅ Success!</strong><br>' + 
+                        result.message + entityInfoHtml + 
+                        '<br><br><strong>Installation Log:</strong><pre>' + result.output + '</pre></div>';
                 } else {
-                    resultDiv.innerHTML = `
-                        <div class="result error">
-                            <strong>❌ Error:</strong> ${result.message}<br>
-                            <pre>${result.error}</pre>
-                        </div>
-                    `;
+                    resultDiv.innerHTML = '<div class="result error"><strong>❌ Error:</strong> ' + 
+                        result.message + '<br><pre>' + result.error + '</pre></div>';
                 }
             } catch (error) {
-                resultDiv.innerHTML = `
-                    <div class="result error">
-                        <strong>❌ Network Error:</strong> ${error.message}
-                    </div>
-                `;
+                resultDiv.innerHTML = '<div class="result error"><strong>❌ Network Error:</strong> ' + 
+                    error.message + '</div>';
             } finally {
                 loadingDiv.style.display = 'none';
                 submitButton.disabled = false;
@@ -238,25 +229,15 @@ UPLOAD_TEMPLATE = '''
                     if (output.trim() === '') {
                         output = 'No custom addons installed.';
                     }
-                    resultDiv.innerHTML = `
-                        <div class="result success">
-                            <strong>📦 Installed Addons:</strong><br>
-                            <pre>${output}</pre>
-                        </div>
-                    `;
+                    resultDiv.innerHTML = '<div class="result success"><strong>📦 Installed Addons:</strong><br><pre>' + 
+                        output + '</pre></div>';
                 } else {
-                    resultDiv.innerHTML = `
-                        <div class="result error">
-                            <strong>❌ Error:</strong> ${result.message}
-                        </div>
-                    `;
+                    resultDiv.innerHTML = '<div class="result error"><strong>❌ Error:</strong> ' + 
+                        result.message + '</div>';
                 }
             } catch (error) {
-                resultDiv.innerHTML = `
-                    <div class="result error">
-                        <strong>❌ Network Error:</strong> ${error.message}
-                    </div>
-                `;
+                resultDiv.innerHTML = '<div class="result error"><strong>❌ Network Error:</strong> ' + 
+                    error.message + '</div>';
             }
         }
 
@@ -265,91 +246,56 @@ UPLOAD_TEMPLATE = '''
             resultDiv.innerHTML = '<div class="loading">📋 Loading installed addons...</div>';
 
             try {
-                // First, get the list of installed addons
                 const response = await fetch('/api/list');
                 const result = await response.json();
 
                 if (result.success) {
-                    // Parse the addon list to extract pack names
                     const addons = parseAddonList(result.output);
 
                     if (addons.length === 0) {
-                        resultDiv.innerHTML = `
-                            <div class="result">
-                                <strong>📦 No Addons Found</strong><br>
-                                No custom addons are currently installed.
-                            </div>
-                        `;
+                        resultDiv.innerHTML = '<div class="result"><strong>📦 No Addons Found</strong><br>No custom addons are currently installed.</div>';
                         return;
                     }
 
-                    // Create interactive removal form
-                    let addonCheckboxes = addons.map((addon, index) => `
-                        <div style="margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">
-                            <label style="display: flex; align-items: center; cursor: pointer;">
-                                <input type="checkbox" name="addon" value="${addon.name}" style="margin-right: 10px; transform: scale(1.2);">
-                                <div>
-                                    <strong>${addon.name}</strong>
-                                    ${addon.details ? `<br><small style="color: #666;">${addon.details}</small>` : ''}
-                                </div>
-                            </label>
-                        </div>
-                    `).join('');
+                    let addonCheckboxes = addons.map(function(addon, index) {
+                        return '<div style="margin: 10px 0; padding: 10px; border: 1px solid #ddd; border-radius: 4px;">' +
+                            '<label style="display: flex; align-items: center; cursor: pointer;">' +
+                            '<input type="checkbox" name="addon" value="' + addon.name + '" style="margin-right: 10px; transform: scale(1.2);">' +
+                            '<div><strong>' + addon.name + '</strong>' +
+                            (addon.details ? '<br><small style="color: #666;">' + addon.details + '</small>' : '') +
+                            '</div></label></div>';
+                    }).join('');
 
-                    resultDiv.innerHTML = `
-                        <div class="result">
-                            <strong>🗑️ Remove Addons</strong><br><br>
+                    resultDiv.innerHTML = '<div class="result">' +
+                        '<strong>🗑️ Remove Addons</strong><br><br>' +
+                        '<form id="removeForm">' +
+                        '<div style="margin-bottom: 20px;">' +
+                        '<label style="display: flex; align-items: center; margin-bottom: 15px; cursor: pointer;">' +
+                        '<input type="checkbox" id="selectAll" style="margin-right: 10px; transform: scale(1.2);">' +
+                        '<strong>Select All</strong></label></div>' +
+                        '<div style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px; margin-bottom: 20px;">' +
+                        addonCheckboxes + '</div>' +
+                        '<div style="display: flex; gap: 10px; margin-top: 20px;">' +
+                        '<button type="submit" style="background-color: #dc3545; border-color: #dc3545;">🗑️ Remove Selected</button>' +
+                        '<button type="button" onclick="removeAllAddons()" style="background-color: #6c757d; border-color: #6c757d;">🗑️ Remove All</button>' +
+                        '<button type="button" onclick="hideRemoveForm()" style="background-color: #6c757d; border-color: #6c757d;">❌ Cancel</button>' +
+                        '</div></form>' +
+                        '<div id="removeResult" style="margin-top: 20px;"></div></div>';
 
-                            <form id="removeForm">
-                                <div style="margin-bottom: 20px;">
-                                    <label style="display: flex; align-items: center; margin-bottom: 15px; cursor: pointer;">
-                                        <input type="checkbox" id="selectAll" style="margin-right: 10px; transform: scale(1.2);">
-                                        <strong>Select All</strong>
-                                    </label>
-                                </div>
-
-                                <div style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px; margin-bottom: 20px;">
-                                    ${addonCheckboxes}
-                                </div>
-
-                                <div style="display: flex; gap: 10px; margin-top: 20px;">
-                                    <button type="submit" style="background-color: #dc3545; border-color: #dc3545;">
-                                        🗑️ Remove Selected
-                                    </button>
-                                    <button type="button" onclick="removeAllAddons()" style="background-color: #6c757d; border-color: #6c757d;">
-                                        🗑️ Remove All
-                                    </button>
-                                    <button type="button" onclick="hideRemoveForm()" style="background-color: #6c757d; border-color: #6c757d;">
-                                        ❌ Cancel
-                                    </button>
-                                </div>
-                            </form>
-
-                            <div id="removeResult" style="margin-top: 20px;"></div>
-                        </div>
-                    `;
-
-                    // Add event listeners
                     setupRemoveFormListeners();
                 } else {
-                    resultDiv.innerHTML = `
-                        <div class="result error">
-                            <strong>❌ Error loading addons:</strong> ${result.message}
-                        </div>
-                    `;
+                    resultDiv.innerHTML = '<div class="result error"><strong>❌ Error loading addons:</strong> ' + 
+                        result.message + '</div>';
                 }
             } catch (error) {
-                resultDiv.innerHTML = `
-                    <div class="result error">
-                        <strong>❌ Network Error:</strong> ${error.message}
-                    </div>
-                `;
+                resultDiv.innerHTML = '<div class="result error"><strong>❌ Network Error:</strong> ' + 
+                    error.message + '</div>';
             }
         }
 
         function parseAddonList(output) {
             const addons = [];
-            const lines = output.split('\n');
+            const lines = output.split('\\n');
             let currentSection = '';
 
             for (const line of lines) {
@@ -361,13 +307,12 @@ UPLOAD_TEMPLATE = '''
                     continue;
                 }
 
-                const match = line.match(/^\s*-\s*([^\s(]+)(\s*\(.*\))?/);
+                const match = line.match(/^\\s*-\\s*([^\\s(]+)(\\s*\\(.*\\))?/);
                 if (match) {
                     const name = match[1];
                     const details = match[2] ? match[2].trim() : '';
 
-                    // Avoid duplicates
-                    if (!addons.find(addon => addon.name === name)) {
+                    if (!addons.find(function(addon) { return addon.name === name; })) {
                         addons.push({
                             name: name,
                             details: details,
@@ -385,25 +330,22 @@ UPLOAD_TEMPLATE = '''
             const addonCheckboxes = document.querySelectorAll('input[name="addon"]');
             const removeForm = document.getElementById('removeForm');
 
-            // Select all functionality
             selectAllCheckbox.addEventListener('change', function() {
-                addonCheckboxes.forEach(checkbox => {
-                    checkbox.checked = this.checked;
+                addonCheckboxes.forEach(function(checkbox) {
+                    checkbox.checked = selectAllCheckbox.checked;
                 });
             });
 
-            // Update select all when individual checkboxes change
-            addonCheckboxes.forEach(checkbox => {
+            addonCheckboxes.forEach(function(checkbox) {
                 checkbox.addEventListener('change', function() {
-                    const allChecked = Array.from(addonCheckboxes).every(cb => cb.checked);
-                    const noneChecked = Array.from(addonCheckboxes).every(cb => !cb.checked);
+                    const allChecked = Array.from(addonCheckboxes).every(function(cb) { return cb.checked; });
+                    const noneChecked = Array.from(addonCheckboxes).every(function(cb) { return !cb.checked; });
 
                     selectAllCheckbox.checked = allChecked;
                     selectAllCheckbox.indeterminate = !allChecked && !noneChecked;
                 });
             });
 
-            // Form submission
             removeForm.addEventListener('submit', async function(e) {
                 e.preventDefault();
                 await removeSelectedAddons();
@@ -412,14 +354,15 @@ UPLOAD_TEMPLATE = '''
 
         async function removeSelectedAddons() {
             const selectedAddons = Array.from(document.querySelectorAll('input[name="addon"]:checked'))
-                .map(checkbox => checkbox.value);
+                .map(function(checkbox) { return checkbox.value; });
 
             if (selectedAddons.length === 0) {
                 alert('Please select at least one addon to remove.');
                 return;
             }
 
-            if (!confirm(`Are you sure you want to remove ${selectedAddons.length} addon(s)?\n\n${selectedAddons.join(', ')}\n\nThis action cannot be undone.`)) {
+            if (!confirm('Are you sure you want to remove ' + selectedAddons.length + ' addon(s)?\\n\\n' + 
+                selectedAddons.join(', ') + '\\n\\nThis action cannot be undone.')) {
                 return;
             }
 
@@ -427,7 +370,7 @@ UPLOAD_TEMPLATE = '''
         }
 
         async function removeAllAddons() {
-            if (!confirm('Are you sure you want to remove ALL custom addons?\n\nThis will remove all custom behavior and resource packs.\nThis action cannot be undone.')) {
+            if (!confirm('Are you sure you want to remove ALL custom addons?\\n\\nThis will remove all custom behavior and resource packs.\\nThis action cannot be undone.')) {
                 return;
             }
 
@@ -453,33 +396,19 @@ UPLOAD_TEMPLATE = '''
                 const result = await response.json();
 
                 if (result.success) {
-                    removeResult.innerHTML = `
-                        <div class="result success">
-                            <strong>✅ Success!</strong><br>
-                            ${result.message}
-                            <br><br><strong>Removal Log:</strong>
-                            <pre>${result.output}</pre>
-                        </div>
-                    `;
+                    removeResult.innerHTML = '<div class="result success"><strong>✅ Success!</strong><br>' +
+                        result.message + '<br><br><strong>Removal Log:</strong><pre>' + result.output + '</pre></div>';
 
-                    // Refresh the addon list after successful removal
-                    setTimeout(() => {
+                    setTimeout(function() {
                         showRemoveForm();
                     }, 3000);
                 } else {
-                    removeResult.innerHTML = `
-                        <div class="result error">
-                            <strong>❌ Error:</strong> ${result.message}<br>
-                            <pre>${result.error || ''}</pre>
-                        </div>
-                    `;
+                    removeResult.innerHTML = '<div class="result error"><strong>❌ Error:</strong> ' +
+                        result.message + '<br><pre>' + (result.error || '') + '</pre></div>';
                 }
             } catch (error) {
-                removeResult.innerHTML = `
-                    <div class="result error">
-                        <strong>❌ Network Error:</strong> ${error.message}
-                    </div>
-                `;
+                removeResult.innerHTML = '<div class="result error"><strong>❌ Network Error:</strong> ' +
+                    error.message + '</div>';
             } finally {
                 if (submitButton) submitButton.disabled = false;
             }
@@ -491,12 +420,14 @@ UPLOAD_TEMPLATE = '''
     </script>
 </body>
 </html>
-'''
+"""
+
 
 @app.route('/')
 def index():
     """Serve the upload form"""
     return render_template_string(UPLOAD_TEMPLATE)
+
 
 @app.route('/api/install', methods=['POST'])
 def install_addon():
@@ -524,7 +455,7 @@ def install_addon():
         addon_name = os.path.splitext(filename)[0]
 
         # Run installation script
-        result = run_shell_script('scripts/install-mcaddon.sh', filepath)
+        result = run_shell_script('./install-mcaddon.sh', filepath)
 
         # Clean up uploaded file
         try:
@@ -575,6 +506,7 @@ def install_addon():
             'error': str(e)
         }), 500
 
+
 @app.route('/api/remove', methods=['POST'])
 def remove_addons():
     """Remove installed addons"""
@@ -589,16 +521,17 @@ def remove_addons():
         # Build the removal command
         if data.get('remove_all'):
             # Remove all custom packs
-            result = run_shell_script('scripts/remove-mcaddon.sh', 'all')
+            result = run_shell_script('./remove-mcaddon.sh', 'all')
         elif 'packs' in data and isinstance(data['packs'], list):
             if not data['packs']:
                 return jsonify({'success': False, 'message': 'No packs specified for removal'}), 400
 
             # Remove specific packs by name
             pack_names = ' '.join(f'"{pack}"' for pack in data['packs'])
-            result = run_shell_script('scripts/remove-mcaddon.sh', 'selective', pack_names)
+            result = run_shell_script('./remove-mcaddon.sh', 'selective', pack_names)
         else:
-            return jsonify({'success': False, 'message': 'Invalid request format. Use "remove_all": true or "packs": [...]'}), 400
+            return jsonify(
+                {'success': False, 'message': 'Invalid request format. Use "remove_all": true or "packs": [...]'}), 400
 
         if result['success']:
             return jsonify({
@@ -620,6 +553,7 @@ def remove_addons():
             'message': 'Internal server error',
             'error': str(e)
         }), 500
+
 
 @app.route('/api/list', methods=['GET'])
 def list_addons():
@@ -708,10 +642,12 @@ def list_addons():
             'error': str(e)
         }), 500
 
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
     return jsonify({'status': 'healthy'})
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8000, debug=False)
