@@ -1,6 +1,7 @@
 #!/bin/bash
 
-set -e
+# Don't exit on individual command failures - we'll handle errors manually
+set +e
 
 DATA_DIR="/root/tools/minecraft"
 WORLD_DIR="$DATA_DIR/worlds/Bedrock level"
@@ -85,11 +86,12 @@ send_minecraft_command() {
     echo "    Executing: $command"
 
     # Send command via Docker exec to the minecraft container
+    # Don't fail the script if this command fails
     if docker exec minecraft rcon-cli "$command" >/dev/null 2>&1; then
         echo "    ✓ Command executed successfully"
         return 0
     else
-        echo "    ⚠️ Command execution failed (this is normal if no entities exist)"
+        echo "    ⚠️ Command execution failed (server may not have RCON enabled or be unavailable)"
         return 1
     fi
 }
@@ -122,13 +124,14 @@ cleanup_entities() {
 
     # Remove all instances of each entity type
     for entity in "${all_entities[@]}"; do
-        echo "  Removing all instances of: $entity"
-        send_minecraft_command "kill @e[type=$entity]"
+        echo "  Attempting to remove all instances of: $entity"
+        # Don't fail if the kill command doesn't work
+        send_minecraft_command "kill @e[type=$entity]" || true
     done
 
     # Clear all players' inventories of spawn eggs (optional - commented out as it's aggressive)
     # echo "  Clearing spawn eggs from player inventories..."
-    # send_minecraft_command "clear @a spawn_egg"
+    # send_minecraft_command "clear @a spawn_egg" || true
 
     echo "  ✓ Entity cleanup completed"
 }
@@ -219,7 +222,13 @@ restart_server() {
 notify_players() {
     local message="$1"
     echo -e "${YELLOW}📢 Notifying players...${NC}"
-    send_minecraft_command "say $message"
+
+    # Try to send the message, but don't fail if it doesn't work
+    if send_minecraft_command "say $message"; then
+        echo "    ✓ Players notified"
+    else
+        echo "    ⚠️ Could not notify players (RCON may not be available)"
+    fi
 }
 
 # Main logic
